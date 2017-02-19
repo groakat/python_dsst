@@ -265,7 +265,7 @@ def dsst(params):
 
                 if frame == 1:
                     imshow_obj_2 = ax2.imshow(response, cmap=plt.cm.viridis)
-                    imshow_obj_3 = ax3.imshow(np.real(np.fft.ifft2(hf_num, axes=(0, 1))[..., 0]),
+                    imshow_obj_3 = ax3.imshow(np.abs(xtf)[..., 0],
                                cmap=plt.cm.viridis)
                     imshow_obj_4 = ax4.imshow(np.real(np.fft.ifft2(xtf, axes=(0, 1))[..., 0]),
                                cmap=plt.cm.viridis)
