@@ -57,8 +57,8 @@ def get_scale_sample(im, pos, base_target_sz, scaleFactors,
                             np.floor(patch_sz[0] / 2))
 
         # extract image
-        im_patch = im[x_start.astype(np.int32):x_stop.astype(np.int32),
-                      y_start.astype(np.int32):y_stop.astype(np.int32)]
+        im_patch = im[y_start.astype(np.int32):y_stop.astype(np.int32),
+                      x_start.astype(np.int32):x_stop.astype(np.int32)]
 
         # resize image to model size
         im_patch_resized = skit.resize(im_patch, scale_model_sz)
