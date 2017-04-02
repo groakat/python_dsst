@@ -62,7 +62,11 @@ def read_cfg(cfg_path, dataset, root_dir):
 def get_start_index(gt, frame_slc):
     if frame_slc.start not in gt.index:
         try:
-            return gt.index[np.where(gt.index >= frame_slc.start)[0]][0]
+            idx_cand = gt.index[np.where(gt.index >= frame_slc.start)[0]][0]
+            if idx_cand < frame_slc.stop:
+                return idx_cand
+            else:
+                return None
         except:
             return None
     else:
@@ -235,42 +239,49 @@ def load_ground_truth(ground_truth_folder,
     return ground_truth_tracks
 
 
-def calculate_error(results_track):#, gt_track):
-    # sel_gt_track = gt_track.loc[results_track.index]
+def calculate_error(results_track):
+    errors = results_track[["gt_x", "gt_y"]] \
+             - results_track[["track_x", "track_y"]].values
 
-    error = np.sqrt(np.sum((np.asarray(results_track[["gt_x", "gt_y"]])
-                            - np.asarray(results_track[["track_x", "track_y"]])
-                            )**2))
+    errors = (errors**2).sum(axis=1).apply(np.sqrt)
 
-    return error
+    return errors
 
 
-def compare_tracks_to_ground_truth(ground_truth_root_dir,
-                                   results_root_folder,
+def compare_tracks_to_ground_truth(results_root_folder,
                                    dataset):
     results_tracks = load_results(results_root_folder, dataset)
-    # gt_tracks = load_ground_truth(ground_truth_root_dir,
-    #                               results_tracks,
-    #                               dataset)
     if len(results_tracks) == 0:
         return None
 
-    error = 0
-    for res_f in results_tracks.keys():
-        error += calculate_error(results_tracks[res_f])#,
-                                 # gt_tracks[res_f])
+    errors = []
+    for res_f in sorted(results_tracks.keys()):
+        errors += [calculate_error(results_tracks[res_f])]
+        # print(len(errors))
+
+    indeces = np.concatenate([np.asarray(x.index) for x in errors])
+    min_idx = np.min(indeces)
+    max_idx = np.max(indeces)
+
+    for i in range(len(errors)):
+        # 1/0
+        errors[i] = errors[i].sort_index()
+        errors[i] = errors[i].reindex(np.arange(min_idx, max_idx),
+                                      fill_value=0)
+
+    import functools
+
+    error = functools.reduce(lambda x, y: x + y, errors)
 
     return error / len(results_tracks.keys())
 
 
 def calculate_error_of_all_tracks():
-    ground_truth_root_dir = "/media/peter/Hypermetric_01/ICCV/data"
     results_root_folder =  "/media/peter/Hypermetric_01/tmp"
     cfg_path = "/home/peter/Documents/phd/projects/mech_sys/dataset_config.yaml"
 
     for dataset in get_datasets(cfg_path):
-        error = compare_tracks_to_ground_truth(ground_truth_root_dir,
-                                               results_root_folder,
+        error = compare_tracks_to_ground_truth(results_root_folder,
                                                dataset)
         print("Dataset: {} \t Error: {}".format(dataset, error))
 
@@ -287,7 +298,7 @@ def track_all_datasets():
     out_root_dir = "/media/peter/Hypermetric_01/tmp"
     cfg_path = "/home/peter/Documents/phd/projects/mech_sys/dataset_config.yaml"
 
-    for dataset in get_datasets(cfg_path)[10:]:
+    for dataset in get_datasets(cfg_path):
         print("Started processing dataset {}".format(dataset))
         track_parts(root_dir, cfg_path, dataset, out_root_dir,
                     marker_size=[10, 10])
