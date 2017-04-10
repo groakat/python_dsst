@@ -1,4 +1,4 @@
-
+import concurrent.futures
 import yaml
 import glob
 import pandas as pd
@@ -129,11 +129,11 @@ def track_ground_truth_track(root_dir,
     return pos_list, scale_list, gt.loc[start_frame:start_frame+i]
 
 
-def save_results(results, out_root_dir, dataset, track_num):
+def save_results(results, out_root_dir, dataset, track_num, marker_size):
     out_file = os.path.join(out_root_dir,
                             dataset,
                             'tracks',
-                            'DSST',
+                            'DSST_{}'.format(marker_size),
                             "track.{:03d}.csv".format(track_num))
     if not os.path.exists(os.path.dirname(out_file)):
         os.makedirs(os.path.dirname(out_file))
@@ -149,6 +149,7 @@ def track_parts(root_dir, cfg_path, dataset, out_root_dir, marker_size):
     if marker_size is None:
         marker_size = [10, 10]
 
+    
     for driver in drivers:
         pos_list, scale_list, gt = track_ground_truth_track(root_dir,
                                                             dataset,
@@ -171,7 +172,7 @@ def track_parts(root_dir, cfg_path, dataset, out_root_dir, marker_size):
                               np.asarray(scale_list).reshape(-1, 1)])
 
         total_res = np.concatenate([train_res, test_res])
-        save_results(total_res, out_root_dir, dataset, driver)
+        save_results(total_res, out_root_dir, dataset, driver, marker_size)
 
     for driver in predict:
         pos_list, scale_list, gt = track_ground_truth_track(root_dir,
@@ -195,14 +196,14 @@ def track_parts(root_dir, cfg_path, dataset, out_root_dir, marker_size):
                               np.asarray(scale_list).reshape(-1, 1)])
 
         total_res = np.concatenate([train_res, test_res])
-        save_results(total_res, out_root_dir, dataset, driver)
+        save_results(total_res, out_root_dir, dataset, driver, marker_size)
 
 
-def load_results(results_root_folder, dataset):
+def load_results(results_root_folder, dataset, marker_size):
     files = sorted(glob.glob(os.path.join(results_root_folder,
                                           dataset,
                                           'tracks',
-                                          "DSST",
+                                          glob.escape("DSST_{}".format(marker_size)),
                                           "*.csv")))
     results_tracks = {}
     for f in files:
@@ -249,8 +250,8 @@ def calculate_error(results_track):
 
 
 def compare_tracks_to_ground_truth(results_root_folder,
-                                   dataset):
-    results_tracks = load_results(results_root_folder, dataset)
+                                   dataset, marker_size):
+    results_tracks = load_results(results_root_folder, dataset, marker_size)
     if len(results_tracks) == 0:
         return None
 
@@ -263,11 +264,19 @@ def compare_tracks_to_ground_truth(results_root_folder,
     min_idx = np.min(indeces)
     max_idx = np.max(indeces)
 
-    for i in range(len(errors)):
-        # 1/0
-        errors[i] = errors[i].sort_index()
-        errors[i] = errors[i].reindex(np.arange(min_idx, max_idx),
-                                      fill_value=0)
+    if min_idx != max_idx:
+        for i in range(len(errors)):
+            # 1/0
+            errors[i] = errors[i].sort_index()
+            try:
+                duplicated_indeces = errors[i].index.duplicated()
+                if duplicated_indeces.any():
+                    errors[i] = errors[i][~duplicated_indeces]
+
+                errors[i] = errors[i].reindex(np.arange(min_idx, max_idx),
+                                              fill_value=0)
+            except ValueError:
+                1/0
 
     import functools
 
@@ -276,14 +285,30 @@ def compare_tracks_to_ground_truth(results_root_folder,
     return error / len(results_tracks.keys())
 
 
-def calculate_error_of_all_tracks():
+def calculate_error_of_all_tracks(marker_sizes=None):
+    if marker_sizes is None:
+        marker_sizes = [[10, 10],
+                        [15, 15],
+                        [20, 20],
+                        [25, 25],
+                        [30, 30]]
+
     results_root_folder =  "/media/peter/Hypermetric_01/tmp"
     cfg_path = "/home/peter/Documents/phd/projects/mech_sys/dataset_config.yaml"
 
+    dataset_errors = {}
     for dataset in get_datasets(cfg_path):
-        error = compare_tracks_to_ground_truth(results_root_folder,
-                                               dataset)
-        print("Dataset: {} \t Error: {}".format(dataset, error))
+        error = pd.DataFrame()
+        for marker_size in marker_sizes:
+            error[str(marker_size)] = compare_tracks_to_ground_truth(
+                results_root_folder,
+                dataset,
+                marker_size
+            )
+            # print("Dataset: {} \t Error: {}".format(dataset, error))
+        dataset_errors[dataset] = error
+
+    return dataset_errors
 
 
 def get_datasets(cfg_path):
@@ -298,19 +323,46 @@ def track_all_datasets():
     out_root_dir = "/media/peter/Hypermetric_01/tmp"
     cfg_path = "/home/peter/Documents/phd/projects/mech_sys/dataset_config.yaml"
 
-    for dataset in get_datasets(cfg_path):
-        print("Started processing dataset {}".format(dataset))
-        track_parts(root_dir, cfg_path, dataset, out_root_dir,
-                    marker_size=[10, 10])
+    print(get_datasets(cfg_path))
+    # with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+    #     executor.map(lambda x: track_parts(root_dir,
+    #                                        cfg_path,
+    #                                        x,
+    #                                        out_root_dir,
+    #                                        marker_size=[10, 10]),
+    #                  get_datasets(cfg_path))
+    #
+    # with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+    #     executor.map(lambda x: track_parts(root_dir,
+    #                                        cfg_path,
+    #                                        x,
+    #                                        out_root_dir,
+    #                                        marker_size=[15, 15]),
+    #                  get_datasets(cfg_path))
 
-    root_dir = "/media/peter/Hypermetric_01/ICCV/data"
-    out_root_dir = "/media/peter/Hypermetric_01/tmp2"
-    cfg_path = "/home/peter/Documents/phd/projects/mech_sys/dataset_config.yaml"
+    # with concurrent.futures.ThreadPoolExecutor() as executor:
+    #     executor.map(lambda x: track_parts(root_dir,
+    #                                        cfg_path,
+    #                                        x,
+    #                                        out_root_dir,
+    #                                        marker_size=[20, 20]),
+    #                  get_datasets(cfg_path))
 
-    for dataset in get_datasets(cfg_path):
-        print("Started processing dataset {}".format(dataset))
-        track_parts(root_dir, cfg_path, dataset, out_root_dir,
-                    marker_size=[15, 15])
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        executor.map(lambda x: track_parts(root_dir,
+                                           cfg_path,
+                                           x,
+                                           out_root_dir,
+                                           marker_size=[25, 25]),
+                     get_datasets(cfg_path))
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        executor.map(lambda x: track_parts(root_dir,
+                                           cfg_path,
+                                           x,
+                                           out_root_dir,
+                                           marker_size=[30, 30]),
+                     get_datasets(cfg_path))
 
 
 def main():
