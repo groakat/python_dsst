@@ -149,7 +149,6 @@ def track_parts(root_dir, cfg_path, dataset, out_root_dir, marker_size):
     if marker_size is None:
         marker_size = [10, 10]
 
-    
     for driver in drivers:
         pos_list, scale_list, gt = track_ground_truth_track(root_dir,
                                                             dataset,
@@ -244,19 +243,29 @@ def calculate_error(results_track):
     errors = results_track[["gt_x", "gt_y"]] \
              - results_track[["track_x", "track_y"]].values
 
-    errors = (errors**2).sum(axis=1).apply(np.sqrt)
+    errors = (errors**2).sum(axis=1)#.apply(np.sqrt)
 
     return errors
 
 
+def extract_track_number_from_file(file):
+    return int(file.split('.')[-2])
+
+
 def compare_tracks_to_ground_truth(results_root_folder,
-                                   dataset, marker_size):
+                                   dataset,
+                                   marker_size,
+                                   track_numbers=None):
     results_tracks = load_results(results_root_folder, dataset, marker_size)
     if len(results_tracks) == 0:
         return None
 
     errors = []
     for res_f in sorted(results_tracks.keys()):
+        if track_numbers is not None:
+            if extract_track_number_from_file(res_f) not in track_numbers:
+                continue
+
         errors += [calculate_error(results_tracks[res_f])]
         # print(len(errors))
 
@@ -285,7 +294,11 @@ def compare_tracks_to_ground_truth(results_root_folder,
     return error / len(results_tracks.keys())
 
 
-def calculate_error_of_all_tracks(marker_sizes=None):
+def calculate_error_of_all_tracks(cfg_path="/home/peter/Documents/phd/projects/mech_sys/dataset_config.yaml",
+                                  root_dir="/media/peter/Hypermetric_01/ICCV/data",
+                                  marker_sizes=None,
+                                  category=None,
+                                  track_type=None):
     if marker_sizes is None:
         marker_sizes = [[10, 10],
                         [15, 15],
@@ -293,22 +306,48 @@ def calculate_error_of_all_tracks(marker_sizes=None):
                         [25, 25],
                         [30, 30]]
 
-    results_root_folder =  "/media/peter/Hypermetric_01/tmp"
-    cfg_path = "/home/peter/Documents/phd/projects/mech_sys/dataset_config.yaml"
-
     dataset_errors = {}
     for dataset in get_datasets(cfg_path):
+        if category is not None or track_type is not None:
+            train_slc, test_slc, drivers, predict = read_cfg(cfg_path,
+                                                             dataset,
+                                                             root_dir)
+        if track_type == 'drivers':
+            track_numbers = drivers
+        elif track_type == 'predict':
+            track_numbers = predict
+        else:
+            track_numbers = None
+
         error = pd.DataFrame()
         for marker_size in marker_sizes:
             error[str(marker_size)] = compare_tracks_to_ground_truth(
-                results_root_folder,
+                root_dir,
                 dataset,
-                marker_size
+                marker_size,
+                track_numbers=track_numbers
             )
             # print("Dataset: {} \t Error: {}".format(dataset, error))
+
+        if category == 'train':
+            error = error.loc[train_slc]
+        elif category == 'test':
+            error = error.loc[test_slc]
+
         dataset_errors[dataset] = error
 
     return dataset_errors
+
+
+def filter_errors_by_category(cfg_path,
+                              root_dir,
+                              category='test',
+                              marker_sizes=None):
+    dataset_errors = calculate_error_of_all_tracks(marker_sizes)
+    for dataset in dataset_errors:
+        train_slc, test_slc, drivers, predict = read_cfg(cfg_path,
+                                                         dataset,
+                                                         root_dir)
 
 
 def get_datasets(cfg_path):
@@ -318,51 +357,26 @@ def get_datasets(cfg_path):
     return sorted(cfg.keys())
 
 
-def track_all_datasets():
+def track_all_datasets(marker_sizes=None):
     root_dir = "/media/peter/Hypermetric_01/ICCV/data"
-    out_root_dir = "/media/peter/Hypermetric_01/tmp"
+    out_root_dir = "/media/peter/Hypermetric_01/ICCV/data"
     cfg_path = "/home/peter/Documents/phd/projects/mech_sys/dataset_config.yaml"
 
+    if marker_sizes is None:
+        marker_sizes = [[ 9,  9],
+                        [15, 15],
+                        [21, 21],
+                        [25, 25],
+                        [31, 31]]
     print(get_datasets(cfg_path))
-    # with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
-    #     executor.map(lambda x: track_parts(root_dir,
-    #                                        cfg_path,
-    #                                        x,
-    #                                        out_root_dir,
-    #                                        marker_size=[10, 10]),
-    #                  get_datasets(cfg_path))
-    #
-    # with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
-    #     executor.map(lambda x: track_parts(root_dir,
-    #                                        cfg_path,
-    #                                        x,
-    #                                        out_root_dir,
-    #                                        marker_size=[15, 15]),
-    #                  get_datasets(cfg_path))
-
-    # with concurrent.futures.ThreadPoolExecutor() as executor:
-    #     executor.map(lambda x: track_parts(root_dir,
-    #                                        cfg_path,
-    #                                        x,
-    #                                        out_root_dir,
-    #                                        marker_size=[20, 20]),
-    #                  get_datasets(cfg_path))
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
-        executor.map(lambda x: track_parts(root_dir,
-                                           cfg_path,
-                                           x,
-                                           out_root_dir,
-                                           marker_size=[25, 25]),
-                     get_datasets(cfg_path))
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
-        executor.map(lambda x: track_parts(root_dir,
-                                           cfg_path,
-                                           x,
-                                           out_root_dir,
-                                           marker_size=[30, 30]),
-                     get_datasets(cfg_path))
+    for marker_size in marker_sizes:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+            executor.map(lambda x: track_parts(root_dir,
+                                               cfg_path,
+                                               x,
+                                               out_root_dir,
+                                               marker_size=marker_size),
+                         get_datasets(cfg_path))
 
 
 def main():

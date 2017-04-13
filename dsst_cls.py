@@ -129,7 +129,7 @@ class DSSTTracker(object):
                  n_scales=33,
                  scale_step=1.02,
                  scale_sigma_factor=1/4.0,
-                 scale_model_max_area=512,
+                 scale_model_max_area=1024,
                  target_sz=np.array([36, 51]),
                  visualization=False):
 
